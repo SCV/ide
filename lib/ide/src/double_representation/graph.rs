@@ -123,8 +123,9 @@ impl GraphInfo {
     }
 
     /// Removes the node from graph.
-    pub fn remove_node(&mut self, _node_id:ID) -> FallibleResult<()> {
-        todo!()
+    pub fn remove_node(&mut self, node_id:ID) -> FallibleResult<()> {
+        self.nodes.drain_filter(|node| node.id() == node_id);
+        Ok(())
     }
 
     /// Sets the visual position of the given node.
@@ -207,7 +208,7 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn add_node() {
+    fn node_operations() {
         basegl::system::web::set_stdout();
         let mut parser = parser::Parser::new_or_panic();
         let program = r"
@@ -216,11 +217,12 @@ main =
     foo a = not_node
     node
 ";
-        let mut graph = main_graph(&mut parser, program);
-        let next_node  = Some(graph.nodes[0].id());
-        let expression = "4 + 4".to_string();
-        let id         = Some(ID::new_v4());
-        let location   = default();
+        let mut graph    = main_graph(&mut parser, program);
+        let next_node_id = graph.nodes[0].id();
+        let next_node    = Some(next_node_id);
+        let expression   = "4 + 4".to_string();
+        let id           = Some(ID::new_v4());
+        let location     = default();
 
         assert!(graph.add_node(NewNodeInfo {expression,id,location,next_node},&mut parser).is_ok());
 
@@ -228,6 +230,12 @@ main =
         assert_eq!(graph.nodes[0].expression_text(), "node");
         assert_eq!(graph.nodes[1].expression_text(), "4 + 4");
         assert_eq!(graph.nodes[2].expression_text(), "node");
+
+        assert!(graph.remove_node(next_node_id).is_ok());
+
+        assert_eq!(graph.nodes.len(), 2);
+        assert_eq!(graph.nodes[0].expression_text(), "4 + 4");
+        assert_eq!(graph.nodes[1].expression_text(), "node");
     }
 
     #[wasm_bindgen_test]
