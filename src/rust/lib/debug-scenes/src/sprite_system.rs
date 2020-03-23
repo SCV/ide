@@ -21,12 +21,12 @@ use wasm_bindgen::prelude::*;
 pub fn run_example_sprite_system() {
     forward_panic_hook_to_console();
     set_stdout();
-    init(&WorldData::new(&web::get_html_element_by_id("root").unwrap()));
+    init(&World::new(&web::get_html_element_by_id("root").unwrap()));
 }
 
 fn init(world:&World) {
     let scene         = world.scene();
-    let camera        = scene.camera()  ;
+    let camera        = scene.camera().clone_ref();
     let navigator     = Navigator::new(&scene,&camera);
     let sprite_system = SpriteSystem::new(world);
 

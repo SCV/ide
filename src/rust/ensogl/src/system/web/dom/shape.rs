@@ -131,6 +131,8 @@ pub struct WithKnownShape<T=web_sys::HtmlElement> {
     on_resize : Rc<RefCell<CallbackRegistry1<ShapeData>>>,
 }
 
+impl<T:CloneRef> CloneRef for WithKnownShape<T> {}
+
 impl<T> WithKnownShape<T> {
     /// Constructor.
     pub fn new(dom:&T) -> Self
@@ -155,5 +157,25 @@ impl<T> WithKnownShape<T> {
     /// Get the current shape of the object.
     pub fn shape(&self) -> &Shape {
         &self.shape
+    }
+}
+
+impl From<WithKnownShape<web::HtmlDivElement>> for WithKnownShape<web::EventTarget> {
+    fn from(t:WithKnownShape<web::HtmlDivElement>) -> Self {
+        let dom       = t.dom.clone().into();
+        let shape     = t.shape.clone();
+        let observer  = t.observer.clone();
+        let on_resize = t.on_resize.clone();
+        Self {dom,shape,observer,on_resize}
+    }
+}
+
+impl From<WithKnownShape<web::HtmlElement>> for WithKnownShape<web::EventTarget> {
+    fn from(t:WithKnownShape<web::HtmlElement>) -> Self {
+        let dom       = t.dom.clone().into();
+        let shape     = t.shape.clone();
+        let observer  = t.observer.clone();
+        let on_resize = t.on_resize.clone();
+        Self {dom,shape,observer,on_resize}
     }
 }
