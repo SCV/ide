@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 
-
 // ================
 // == SourceFile ==
 // ================
@@ -63,9 +62,28 @@ pub trait IsParser : Debug {
     fn parse(&mut self, program:String, ids:IdMap) -> Result<Ast>;
 
     /// Parse program into module.
-    fn parse_module(&mut self, program:String, ids:IdMap) -> Result<ast::known::Module> {
-        let ast = self.parse(program,ids)?;
+    fn parse_module(&mut self, program:impl Str, ids:IdMap) -> Result<ast::known::Module> {
+        let ast = self.parse(program.into(),ids)?;
         ast::known::Module::try_from(ast).map_err(|_| Error::NonModuleRoot)
+    }
+
+    /// Program is expected to be single non-empty line module. The line's AST is
+    /// returned. Panics otherwise.
+    fn parse_line(&mut self, program:impl Str) -> Result<Ast> {
+        let module = self.parse_module(program,default())?;
+
+        let mut lines = module.lines.clone().into_iter().filter_map(|line| {
+            line.elem
+        });
+        if let Some(first_non_empty_line) = lines.next() {
+            if lines.next().is_some() {
+                Err(Error::TooManyLinesProduced)
+            } else {
+                Ok(first_non_empty_line)
+            }
+        } else {
+            Err(Error::NoLinesProduced)
+        }
     }
 
     /// Parse contents of the program source file,
@@ -95,6 +113,12 @@ pub enum Error {
     /// Error related to wrapping = communication with the parser service.
     #[fail(display = "Interop error: {}.", _0)]
     InteropError(#[cause] Box<dyn Fail>),
+    /// When trying to parse a line, not a single line was produced.
+    #[fail(display = "Expected a single line, parsed none.")]
+    NoLinesProduced,
+    /// When trying to parse a single line, more were generated.
+    #[fail(display = "Expected just a single line, found more.")]
+    TooManyLinesProduced,
 }
 
 /// Wraps an arbitrary `std::error::Error` as an `InteropError.`

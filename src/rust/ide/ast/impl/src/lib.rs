@@ -6,6 +6,7 @@
 
 #[warn(missing_docs)]
 pub mod assoc;
+pub mod crumbs;
 #[warn(missing_docs)]
 pub mod internal;
 #[warn(missing_docs)]
@@ -37,15 +38,15 @@ use uuid::Uuid;
 /// A mapping between text position and immutable ID.
 #[derive(Clone,Debug,Default,Deserialize,Eq,PartialEq,Serialize)]
 #[serde(transparent)]
-pub struct IdMap{ pub vec:Vec<(Span,ID)> }
+pub struct IdMap{ pub vec:Vec<(Span, Id)> }
 
 impl IdMap {
     /// Create a new instance.
-    pub fn new(vec:Vec<(Span,ID)>) -> IdMap {
+    pub fn new(vec:Vec<(Span, Id)>) -> IdMap {
         IdMap {vec}
     }
     /// Assigns Span to given ID.
-    pub fn insert(&mut self, span:Span, id:ID) {
+    pub fn insert(&mut self, span:Span, id: Id) {
         self.vec.push((span, id));
     }
 }
@@ -162,7 +163,7 @@ impl<T> Layer<T> for Layered<T> {
 /// Each AST node is annotated with span and an optional ID.
 #[derive(Eq, PartialEq, Debug, Shrinkwrap)]
 #[shrinkwrap(mutable)]
-pub struct Ast {
+pub struct  Ast {
     pub wrapped: Rc<WithID<WithLength<Shape<Ast>>>>
 }
 
@@ -208,14 +209,14 @@ impl Ast {
 
     /// Wraps given shape with an optional ID into Ast.
     /// Length will ba automatically calculated based on Shape.
-    pub fn new<S:Into<Shape<Ast>>>(shape:S, id:Option<ID>) -> Ast {
+    pub fn new<S:Into<Shape<Ast>>>(shape:S, id:Option<Id>) -> Ast {
         let shape: Shape<Ast> = shape.into();
         let length = shape.len();
         Ast::new_with_length(shape,id,length)
     }
 
     /// Just wraps shape, id and len into Ast node.
-    pub fn from_ast_id_len(shape:Shape<Ast>, id:Option<ID>, len:usize) -> Ast {
+    pub fn from_ast_id_len(shape:Shape<Ast>, id:Option<Id>, len:usize) -> Ast {
         let with_length = WithLength { wrapped:shape      , len };
         let with_id     = WithID     { wrapped:with_length, id  };
         Ast { wrapped: Rc::new(with_id) }
@@ -223,7 +224,7 @@ impl Ast {
 
     /// As `new` but sets given declared length for the shape.
     pub fn new_with_length<S:Into<Shape<Ast>>>
-    (shape:S, id:Option<ID>, len:usize) -> Ast {
+    (shape:S, id:Option<Id>, len:usize) -> Ast {
         let shape = shape.into();
         Self::from_ast_id_len(shape,id,len)
     }
@@ -234,8 +235,13 @@ impl Ast {
     }
 
     /// Returns this AST node with ID set to given value.
-    pub fn with_id(&self, id:ID) -> Ast {
+    pub fn with_id(&self, id:Id) -> Ast {
         Ast::from_ast_id_len(self.shape().clone(), Some(id), self.len())
+    }
+
+    /// Returns this AST node with ID set to given value.
+    pub fn with_shape<S:Into<Shape<Ast>>>(&self, shape:S) -> Ast {
+        Ast::new(shape.into(),self.id)
     }
 
     /// Returns this AST node with removed ID.
@@ -298,7 +304,7 @@ impl<'de> Visitor<'de> for AstDeserializationVisitor {
         use ast_schema::*;
 
         let mut shape: Option<Shape<Ast>> = None;
-        let mut id:    Option<Option<ID>> = None;
+        let mut id:    Option<Option<Id>> = None;
         let mut len:   Option<usize>      = None;
 
         while let Some(key) = map.next_key()? {
@@ -412,6 +418,8 @@ macro_rules! with_shape_variants {
             }
     };
 }
+
+
 
 // ===============
 // === Builder ===
@@ -851,10 +859,10 @@ impl<T:HasTokens> HasRepr for T {
 
 // === WithID ===
 
-pub type ID = Uuid;
+pub type Id = Uuid;
 
 pub trait HasID {
-    fn id(&self) -> Option<ID>;
+    fn id(&self) -> Option<Id>;
 }
 
 #[derive(Eq, PartialEq, Debug, Shrinkwrap, Serialize, Deserialize)]
@@ -863,12 +871,12 @@ pub struct WithID<T> {
     #[shrinkwrap(main_field)]
     #[serde(flatten)]
     pub wrapped: T,
-    pub id: Option<ID>
+    pub id: Option<Id>
 }
 
 impl<T> HasID for WithID<T>
     where T: HasID {
-    fn id(&self) -> Option<ID> {
+    fn id(&self) -> Option<Id> {
         self.id
     }
 }
@@ -917,7 +925,7 @@ where T: HasLength + Into<S> {
 
 impl<T> HasID for WithLength<T>
     where T: HasID {
-    fn id(&self) -> Option<ID> {
+    fn id(&self) -> Option<Id> {
         self.deref().id()
     }
 }
@@ -949,7 +957,7 @@ impl Ast {
     }
 
     /// Creates an Ast node with Var inside and given ID.
-    pub fn var_with_id<Name:Str>(name:Name, id:ID) -> Ast {
+    pub fn var_with_id<Name:Str>(name:Name, id: Id) -> Ast {
         let name = name.into();
         let var  = Var{name};
         Ast::new(var,Some(id))
@@ -971,6 +979,17 @@ impl Ast {
         Ast::from(opr)
     }
 
+    /// Creates an AST node with `Infix` shape.
+    pub fn infix(larg:impl Into<Ast>, opr:impl Str, rarg:impl Into<Ast>) -> Ast {
+        let larg = larg.into();
+        let loff  = 1;
+        let opr   = Ast::opr(opr.into());
+        let roff  = 1;
+        let rarg  = rarg.into();
+        let infix = Infix {larg,loff,opr,roff,rarg};
+        Ast::from(infix)
+    }
+
     /// Creates an AST node with `Infix` shape, where both its operands are Vars.
     pub fn infix_var<Str0,Str1,Str2>(larg:Str0, opr:Str1, rarg:Str2) -> Ast
     where Str0 : ToString
@@ -981,7 +1000,7 @@ impl Ast {
         let opr   = Ast::opr(opr);
         let roff  = 1;
         let rarg  = Ast::var(rarg);
-        let infix = Infix { larg, loff, opr, roff, rarg };
+        let infix = Infix {larg,loff,opr,roff,rarg};
         Ast::from(infix)
     }
 }

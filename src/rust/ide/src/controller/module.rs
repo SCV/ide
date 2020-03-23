@@ -16,7 +16,6 @@ use parser::api::SourceFile;
 use ast;
 use ast::Ast;
 use ast::HasRepr;
-use ast::IdMap;
 use ast::HasIdMap;
 use ast::known;
 use data::text::*;
@@ -34,14 +33,14 @@ use shapely::shared;
 
 
 
-/// ============
-/// == Errors ==
-/// ============
+// ============
+// == Errors ==
+// ============
 
 /// Failure for missing node metadata.
 #[derive(Debug,Clone,Copy,Fail)]
 #[fail(display="Node with ID {} was not found in metadata.", _0)]
-pub struct NodeMetadataNotFound(pub ast::ID);
+pub struct NodeMetadataNotFound(pub ast::Id);
 
 
 
@@ -67,7 +66,7 @@ impl parser::api::Metadata for Metadata {}
 #[derive(Debug,Clone,Default,Deserialize,Serialize)]
 pub struct IdeMetadata {
     /// Metadata that belongs to nodes.
-    node : HashMap<ast::ID,NodeMetadata>
+    node : HashMap<ast::Id,NodeMetadata>
 }
 
 /// Metadata of specific node.
@@ -84,6 +83,13 @@ pub struct Position {
     pub vector:Vector2<f32>
 }
 
+impl Position {
+    /// Creates a new position with given coordinates.
+    pub fn new(x:f32, y:f32) -> Position {
+        let vector = Vector2::new(x,y);
+        Position {vector}
+    }
+}
 
 
 
@@ -168,6 +174,11 @@ shared! { Handle
             Ok(())
         }
 
+        /// Obtain parser handle.
+        pub fn parser(&self) -> Parser {
+            self.parser.clone()
+        }
+
         /// Read module code.
         pub fn code(&self) -> String {
             self.module.ast.repr()
@@ -176,7 +187,7 @@ shared! { Handle
         /// Obtains definition information for given graph id.
         pub fn find_definition(&self,id:&dr::graph::Id) -> FallibleResult<DefinitionInfo> {
             let module = known::Module::try_new(self.module.ast.clone())?;
-            double_representation::graph::traverse_for_definition(module,id)
+            double_representation::definition::traverse_for_definition(&module,id)
         }
 
         /// Check if current module state is synchronized with given code. If it's not, log error,
@@ -202,18 +213,18 @@ shared! { Handle
         }
 
         /// Returns metadata for given node, if present.
-        pub fn node_metadata(&mut self, id:ast::ID) -> FallibleResult<NodeMetadata> {
+        pub fn node_metadata(&mut self, id:ast::Id) -> FallibleResult<NodeMetadata> {
             let data = self.module.metadata.ide.node.get(&id).cloned();
             data.ok_or_else(|| NodeMetadataNotFound(id).into())
         }
 
         /// Sets metadata for given node.
-        pub fn set_node_metadata(&mut self, id:ast::ID, data:NodeMetadata) {
+        pub fn set_node_metadata(&mut self, id:ast::Id, data:NodeMetadata) {
             self.module.metadata.ide.node.insert(id,data);
         }
 
         /// Removes metadata of given node and returns them.
-        pub fn pop_node_metadata(&mut self, id:ast::ID) -> FallibleResult<NodeMetadata> {
+        pub fn pop_node_metadata(&mut self, id:ast::Id) -> FallibleResult<NodeMetadata> {
             let data = self.module.metadata.ide.node.remove(&id);
             data.ok_or_else(|| NodeMetadataNotFound(id).into())
         }
@@ -273,6 +284,16 @@ impl Handle {
         async move { fm.write(path.clone(),code?).await }
     }
 
+    /// Updates the module's AST by passing it through a given function.
+    pub fn modify_ast<AstUpdate>
+    (&self, ast_update:AstUpdate) -> FallibleResult<()>
+    where AstUpdate: FnOnce(known::Module) -> FallibleResult<known::Module>, {
+        let module_so_far = known::Module::try_new(self.rc.borrow().module.ast.clone())?;
+        let new_module = ast_update(module_so_far)?;
+        self.with_borrowed(|data| data.update_ast(new_module.into()));
+        Ok(())
+    }
+
     /// Returns a graph controller for graph in this module's subtree identified by `id`.
     /// Reuses already existing controller if possible.
     pub fn get_graph_controller(&self, id:dr::graph::Id)
@@ -284,7 +305,7 @@ impl Handle {
     pub fn new_mock
     ( location     : Location
     , code         : &str
-    , id_map       : IdMap
+    , id_map       : ast::IdMap
     , file_manager : fmc::Handle
     , mut parser   : Parser
     ) -> FallibleResult<Self> {
@@ -301,7 +322,7 @@ impl Handle {
 
 impl Controller {
     /// Update current ast in module controller and emit notification about overall invalidation.
-    fn update_ast(&mut self,ast:Ast) {
+    fn update_ast(&mut self, ast:Ast) {
         self.module.ast  = ast;
         let text_change  = notification::Text::Invalidate;
         let graph_change = notification::Graphs::Invalidate;
@@ -355,7 +376,7 @@ mod test {
             let uuid2        = Uuid::new_v4();
             let uuid3        = Uuid::new_v4();
             let module       = "2+2";
-            let id_map       = IdMap::new(vec!
+            let id_map       = ast::IdMap::new(vec!
                 [ (Span::from((0,1)),uuid1.clone())
                 , (Span::from((2,1)),uuid2)
                 , (Span::from((0,3)),uuid3)
